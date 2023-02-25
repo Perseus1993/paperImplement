@@ -3,7 +3,7 @@ import torch
 
 
 class AlexNet(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes):
         super(AlexNet, self).__init__()
         self.features = nn.Sequential(
             # in 3*224*224  out 96*55*55 size = (224 - 11 + 补0)/4  + 1 = 55 补0 = 4
@@ -18,7 +18,7 @@ class AlexNet(nn.Module):
             nn.MaxPool2d(kernel_size=3, stride=2),
             nn.ReLU(),
             # in 256 * 13 * 13 size = (13 - 3 + 补0)/1 + 1 = 13 out = 384 * 13 * 13
-            nn.Conv2d(in_channels=384, out_channels=384, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=256, out_channels=384, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             # in 384 * 13 * 13 size = (13 - 3 + 补0)/1 + 1  = 13 ,out = 384 * 13 * 13
             nn.Conv2d(in_channels=384, out_channels=384, kernel_size=3, stride=1, padding=1),
@@ -36,7 +36,7 @@ class AlexNet(nn.Module):
             nn.Dropout(p=0.5),
             nn.Linear(4096, 4096),
             nn.ReLU(),
-            nn.Linear(4096, 1000)
+            nn.Linear(4096, num_classes)
         )
 
     def forward(self, x):
