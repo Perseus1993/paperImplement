@@ -16,7 +16,6 @@ class AlexNet(nn.Module):
             nn.ReLU(),
             # in 256 * 27 * 27 size = (27 - 3 )/2 + 1 = 13  out =  256 * 13 * 13
             nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.ReLU(),
             # in 256 * 13 * 13 size = (13 - 3 + 补0)/1 + 1 = 13 out = 384 * 13 * 13
             nn.Conv2d(in_channels=256, out_channels=384, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
@@ -45,6 +44,7 @@ class AlexNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x
+
 
 
 
