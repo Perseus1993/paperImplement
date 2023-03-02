@@ -21,8 +21,8 @@ from torchvision import transforms, utils
 from alexNet.network import AlexNet
 
 LEARNING_RATE = [0.0001, 0.0002, 0.0003, 0.0004]
-IS_NORM = [True,False]
-OPTIMIZER = ["adam","sdg"]
+IS_NORM = [True, False]
+OPTIMIZER = ["adam", "sdg"]
 
 res = itertools.product(LEARNING_RATE, IS_NORM, OPTIMIZER, repeat=1)
 plans = list(res)
@@ -37,11 +37,6 @@ def data_process(is_norm):
     root_file = os.path.join(config["data"].get("root_file"), "Food101")
     model_save_file = config["data"].get("save_file")
 
-    sample_data = Food101(root=root_file, split="test", transform=transforms.ToTensor(), download=True)
-
-    sample_size = len(sample_data)
-    sampler1 = torch.utils.data.sampler.SubsetRandomSampler(
-        np.random.choice(range(len(sample_data)), sample_size))
     transform_list_train = [transforms.RandomResizedCrop(224),
                             transforms.RandomHorizontalFlip(),
                             transforms.ToTensor()]
@@ -158,13 +153,15 @@ def train():
                 test_acc /= len(test_loader)
                 stat_data[epoch][0] = train_loss
                 stat_data[epoch][1] = test_acc
+            if epoch >= 3 >= test_acc:
+                break
             print(f"\nTrain loss: {train_loss:.5f} | Test loss: {test_loss:.5f} | Test Acc: {test_acc:.2f}% \n")
         plt.plot(stat_data, label=cur_plan)
         torch.save(network.state_dict(), model_save_file)
 
         train_time_end = timer()
         print(f"Train time : {train_time_end - train_time_start:.3f} seconds")
-
+        plt.legend()
         plt.savefig("res.png")
         plt.show()
 
