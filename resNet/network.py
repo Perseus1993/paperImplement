@@ -10,29 +10,30 @@ class BasicBlock(nn.Module):
 
     def __init__(self,
                  block_ch_in,
-                 # block_ch_out,
-                 stride_first_conv=1,
+                 block_ch_out,
+                 stride=1,
                  down_sample=None):
         # （size -3 +  2 *padding）/stride + 1 = size
         super().__init__()
-        block_ch_out = block_ch_in
         self.conv1 = nn.Conv2d(in_channels=block_ch_in,
-                               out_channels=block_ch_in,
+                               out_channels=block_ch_out,
                                kernel_size=3,
-                               stride=stride_first_conv,
+                               stride=stride,
                                padding=1,
                                bias=False)
-        self.conv2 = nn.Conv2d(in_channels=block_ch_in,
+        self.conv2 = nn.Conv2d(in_channels=block_ch_out,
                                out_channels=block_ch_out,
                                kernel_size=3,
                                padding=1,
+                               stride=1,
                                bias=False)
         self.down_sample = down_sample
+        self.relu = nn.ReLU(inplace=True)
 
         self.block = nn.Sequential(
             self.conv1,
-            nn.BatchNorm2d(block_ch_in),
-            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(block_ch_out),
+            self.relu,
             self.conv2,
             nn.BatchNorm2d(block_ch_out)
         )
@@ -42,7 +43,11 @@ class BasicBlock(nn.Module):
             identity = self.down_sample(x)
         else:
             identity = x
-        return nn.ReLU(self.block(x) + identity)
+        x = self.block(x)
+        # print("identity shape", identity.shape)
+        # print("x shape ", x.shape)
+        x = x + identity
+        return self.relu(x)
 
 
 class Bottleneck(nn.Module):
@@ -50,36 +55,37 @@ class Bottleneck(nn.Module):
 
     def __init__(self,
                  block_ch_in,
-                 # block_ch_out,
-                 stride_second_conv=1,
+                 block_ch_out,
+                 stride=1,
                  down_sample=None):
         super().__init__()
         # 1*1卷积
         self.conv1 = nn.Conv2d(in_channels=block_ch_in,
-                               out_channels=block_ch_in,
+                               out_channels=block_ch_out,
                                kernel_size=1,
                                stride=1,
                                bias=False)
-        self.conv2 = nn.Conv2d(in_channels=block_ch_in,
-                               out_channels=block_ch_in,
+        self.conv2 = nn.Conv2d(in_channels=block_ch_out,
+                               out_channels=block_ch_out,
                                kernel_size=3,
                                padding=1,
-                               stride=stride_second_conv,
+                               stride=stride,
                                bias=False)
-        self.conv3 = nn.Conv2d(in_channels=block_ch_in,
-                               out_channels=block_ch_in * self.expansion,
+        self.conv3 = nn.Conv2d(in_channels=block_ch_out,
+                               out_channels=block_ch_out * self.expansion,
                                kernel_size=1,
                                stride=1,
                                bias=False)
+        self.relu = nn.ReLU(inplace=True)
         self.block = nn.Sequential(
-            self.conv1(),
-            nn.BatchNorm2d(block_ch_in),
+            self.conv1,
+            nn.BatchNorm2d(block_ch_out),
             nn.ReLU(inplace=True),
-            self.conv2(),
-            nn.BatchNorm2d(block_ch_in),
+            self.conv2,
+            nn.BatchNorm2d(block_ch_out),
             nn.ReLU(inplace=True),
-            self.conv3(),
-            nn.BatchNorm2d(block_ch_in * self.expansion)
+            self.conv3,
+            nn.BatchNorm2d(block_ch_out * self.expansion)
         )
         self.down_sample = down_sample
 
@@ -88,11 +94,10 @@ class Bottleneck(nn.Module):
             identity = self.down_sample(x)
         else:
             identity = x
-        return nn.ReLU(self.block(x) + identity)
+        return self.relu(self.block(x) + identity)
 
 
 class ResNet(nn.Module):
-    into_res_channel = 64
 
     def __init__(
             self,
@@ -101,16 +106,20 @@ class ResNet(nn.Module):
             num_classes=1000,
     ):
         super().__init__()
+        self.in_channel = 64
         # in 224*224 out 112*112  (224 - 7 + 2 * padding)/2 = 112, padding = floor(3.5)
         self.conv1 = nn.Conv2d(3,
-                               self.into_res_channel,
+                               self.in_channel,
                                kernel_size=7,
                                stride=2,
                                padding=3,
                                bias=False
                                )
+        self.bn1 = nn.BatchNorm2d(self.in_channel)
+        self.relu = nn.ReLU(inplace=True)
+        self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.ly1 = self._make_layer(block, 64, layers[0])
-        self.ly2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.ly2 = self._make_layer(block, 128,  layers[1], stride=2)
         self.ly3 = self._make_layer(block, 256, layers[2], stride=2)
         self.ly4 = self._make_layer(block, 512, layers[3], stride=2)
         self.av_pool = nn.AdaptiveAvgPool2d((1, 1))
@@ -118,9 +127,9 @@ class ResNet(nn.Module):
 
         self.feature = nn.Sequential(
             self.conv1,
-            nn.BatchNorm2d(self.into_res_channel),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
+            self.bn1,
+            self.relu,
+            self.max_pool,
             self.ly1,
             self.ly2,
             self.ly3,
@@ -130,34 +139,38 @@ class ResNet(nn.Module):
 
     def _make_layer(self,
                     block: Type[Union[BasicBlock, Bottleneck]],
-                    in_layer_channel,
+                    channel,
                     block_nums,
                     stride=1
                     ):
         # 判断identity是否需要下采样
-        if stride != 1 or block.expansion != 1:
+        down_sample = None
+        if stride != 1 or self.in_channel != block.expansion :
             down_sample = nn.Sequential(
-                nn.Conv2d(in_layer_channel,
-                          in_layer_channel * block.expansion,
-                          kernel_size=1),
-                nn.BatchNorm2d(in_layer_channel * block.expansion)
+                nn.Conv2d(self.in_channel,
+                          channel * block.expansion,
+                          stride=stride,
+                          kernel_size=1,
+                          bias=False),
+                nn.BatchNorm2d(channel * block.expansion)
             )
 
-        layer_list = [block(in_layer_channel, stride)]
-        tmp_channel = block.expansion * in_layer_channel
+        layer_list = [block(self.in_channel, channel, stride, down_sample)]
+        self.in_channel = channel * block.expansion
 
         for _ in range(1, block_nums):
             layer_list.append(
                 block(
-                    tmp_channel,
-                    stride
+                    self.in_channel,
+                    channel
                 )
             )
 
         return nn.Sequential(*layer_list)
 
     def forward(self, x):
-        x = torch.flatten(self.feature(x), 1)
+        x = self.feature(x)
+        x = torch.flatten(x, 1)
         x = self.fc(x)
         return x
 
@@ -165,7 +178,9 @@ class ResNet(nn.Module):
 def resnet34(num_classes=1000):
     # https://download.pytorch.org/models/resnet34-333f7ec4.pth
     return ResNet([3, 4, 6, 3], BasicBlock, num_classes=num_classes)
-
+def resnet50(num_classes=1000):
+    # https://download.pytorch.org/models/resnet50-19c8e357.pth
+    return ResNet([3, 4, 6, 3], Bottleneck, num_classes=num_classes)
 
 if __name__ == '__main__':
     nt = resnet34()
